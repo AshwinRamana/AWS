@@ -1,0 +1,171 @@
+Resources:
+  myVPC:
+      Type: AWS::EC2::VPC
+      Properties:
+        CidrBlock: 10.110.0.0/16
+        EnableDnsSupport: 'true'
+        EnableDnsHostnames: 'true'
+        Tags:
+         - Key: stack
+           Value: production
+  myInternetGateway:
+        Type: AWS::EC2::InternetGateway
+        Properties:
+          Tags:
+          - Key: stack
+            Value: production
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId:
+         Ref: myVPC
+      InternetGatewayId:
+         Ref: myInternetGateway
+  myRouteTable:
+        Type: AWS::EC2::RouteTable
+        Properties:
+          VpcId:
+            Ref: myVPC
+          Tags:
+          - Key: stack
+            Value: production
+  myRoute:
+      Type: AWS::EC2::Route
+      Properties:
+         RouteTableId:
+           Ref: myRouteTable
+         DestinationCidrBlock: 0.0.0.0/0
+         GatewayId:
+           Ref: myInternetGateway
+  mypublicSubnet1a:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        Ref: myVPC
+      CidrBlock: 10.110.1.0/24
+      AvailabilityZone: "ca-central-1a"
+      MapPublicIpOnLaunch: true
+      Tags:
+      - Key: stack
+        Value: production
+  mypublicSubnet1b:
+          Type: AWS::EC2::Subnet
+          Properties:
+            VpcId:
+              Ref: myVPC
+            CidrBlock: 10.110.2.0/24
+            AvailabilityZone: "ca-central-1b"
+            MapPublicIpOnLaunch: true
+            Tags:
+            - Key: stack
+              Value: production
+  mySubnetRouteTableAssociation1a:
+      Type: AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+        SubnetId:
+          Ref: mypublicSubnet1a
+        RouteTableId:
+          Ref: myRouteTable
+  mySubnetRouteTableAssociation1b:
+        Type: AWS::EC2::SubnetRouteTableAssociation
+        Properties:
+          SubnetId:
+            Ref: mypublicSubnet1b
+          RouteTableId:
+            Ref: myRouteTable
+  myprivateSubnet1a:
+      Type: AWS::EC2::Subnet
+      Properties:
+        VpcId:
+          Ref: myVPC
+        CidrBlock: 10.110.3.0/24
+        AvailabilityZone: "ca-central-1a"
+        MapPublicIpOnLaunch: false
+        Tags:
+        - Key: stack
+          Value: production
+  myprivateSubnet1b:
+            Type: AWS::EC2::Subnet
+            Properties:
+              VpcId:
+                Ref: myVPC
+              CidrBlock: 10.110.4.0/24
+              AvailabilityZone: "ca-central-1b"
+              MapPublicIpOnLaunch: false
+              Tags:
+              - Key: stack
+                Value: production
+  InstanceSecurityGroup:
+      Type: AWS::EC2::SecurityGroup
+      Properties:
+        GroupDescription: Allow http to client host
+        VpcId:
+          Ref: myVPC
+        SecurityGroupIngress:
+          - IpProtocol: tcp
+            FromPort: 80
+            ToPort: 80
+            CidrIp: 0.0.0.0/0
+          - IpProtocol: tcp
+            FromPort: 22
+            ToPort: 80
+            CidrIp: 0.0.0.0/0
+        SecurityGroupEgress:
+          - IpProtocol: tcp
+            FromPort: 8
+            ToPort: 65500
+            CidrIp: 0.0.0.0/0
+  IamRootRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+      RoleName : ssm
+      Policies:
+        - PolicyName: root
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: '*'
+                Resource: '*'
+  RootInstanceProfile:
+    Type: 'AWS::IAM::InstanceProfile'
+    Properties:
+      InstanceProfileName: ssmrole
+      Path: /
+      Roles:
+        - !Ref IamRootRole
+  MyEC2Instance:
+      Type: AWS::EC2::Instance
+      Properties:
+        ImageId: ami-0843f7c45354d48b5
+        InstanceType: t2.micro
+        SubnetId:
+              Ref: mypublicSubnet1a
+        SecurityGroupIds:
+          - Ref: InstanceSecurityGroup
+        KeyName: "ash"
+        UserData:
+           Fn::Base64:
+             !Sub |
+                #!/bin/bash
+                yum update -y
+                yum install -y httpd
+                service httpd start
+                chkconfig httpd on
+                cd /var/www/html
+                echo "This is a Webserver-NewFeature USA-You are in EC2 - 2" > index.html
+                echo "I am Healthy" > healthy.html
+        IamInstanceProfile:
+          Ref: RootInstanceProfile
